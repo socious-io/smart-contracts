@@ -34,6 +34,11 @@ contract Thank is ERC20, AccessControl {
             amountToMint = (amountInReserve * 42) / 10000;
         }
 
+        require(
+            amountToMint <= maxCap,
+            "amount to mint is greater than the maxCap"
+        );
+
         _mint(to, amountToMint);
     }
 }
