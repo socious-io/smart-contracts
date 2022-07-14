@@ -1,5 +1,4 @@
 import { HardhatUserConfig } from 'hardhat/config';
-import '@nomiclabs/hardhat-waffle';
 import '@nomiclabs/hardhat-ethers';
 import '@typechain/hardhat';
 import dotenv from "dotenv";
@@ -20,6 +19,14 @@ const config: HardhatUserConfig = {
             },
           },
         },
+        {
+          version: "^0.8.9",
+          settings: {
+            optimizer: {
+              enabled: true
+            }
+          }
+        }
       ],
   },
   defaultNetwork: "milkomedaTest",
@@ -34,9 +41,6 @@ const config: HardhatUserConfig = {
       chainId: 2001,
       accounts: process.env.MILKOMEDAM_PK !== undefined ? [process.env.MILKOMEDAM_PK] : []
     }
-  },
-  mocha: {
-    timeout: 60000,
   },
   paths: {
     artifacts: "./artifacts",

@@ -1,4 +1,4 @@
-simport { utils, Wallet, providers, Contract } from "ethers";
+import { utils, Wallet, providers, Contract } from "ethers";
 import { getEnvVariable } from "./misc";
 import { loadJsonFile } from "./json";
 
