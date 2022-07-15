@@ -32,7 +32,7 @@ contract Donate is Ownable {
     }
 
     function donate(int _projectId, address _targetAddress) external payable {
-        if(msg.sender.balance >= msg.value) {
+        if(msg.sender.balance <= msg.value) {
             revert NotEnoughFunds(msg.value, msg.sender.balance);
         }
 
