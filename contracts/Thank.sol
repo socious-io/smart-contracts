@@ -22,6 +22,8 @@ contract Thank is ERC20, AccessControl {
         public
         onlyRole(MINTER_ROLE)
     {
+        require(to != address(0), "Thank: receiver is the zero address");
+
         uint256 amountInReserve = maxCap - totalSupply();
 
         // amountInReserve * 0.42% * stakedProportion %
@@ -36,7 +38,7 @@ contract Thank is ERC20, AccessControl {
 
         require(
             amountToMint <= maxCap,
-            "amount to mint is greater than the maxCap"
+            "Thank: amount to mint is greater than the maxCap"
         );
 
         _mint(to, amountToMint);

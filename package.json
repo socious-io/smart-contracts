@@ -35,7 +35,7 @@
     "chain": "hardhat node",
     "test": "hardhat test",
     "coverage": "hardhat coverage --network hardhat",
-    "compile": "prettier --write 'contracts/**/*.sol' && hardhat compile",
+    "compile": "hardhat compile",
     "accounts": "hardhat accounts",
     "balance": "hardhat balance",
     "generate": "hardhat generate",
