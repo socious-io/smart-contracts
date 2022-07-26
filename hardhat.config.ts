@@ -6,7 +6,7 @@ import dotenv from "dotenv";
 
 import "./tasks";
 
-dotenv.config()
+dotenv.config();
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -17,7 +17,6 @@ const config: HardhatUserConfig = {
           optimizer: {
             enabled: true,
             runs: 50,
-            },
           },
         },
         {
@@ -43,13 +42,19 @@ const config: HardhatUserConfig = {
     milkomedaTest: {
       url: `${process.env.MILKOMEDAT_URL}`,
       chainId: 200101,
-      accounts: process.env.MILKOMEDAT_PK !== undefined ? [process.env.MILKOMEDAT_PK] : []
+      accounts:
+        process.env.MILKOMEDAT_PK !== undefined
+          ? [process.env.MILKOMEDAT_PK]
+          : [],
     },
     milkomedaMain: {
       url: `${process.env.MILKOMEDAM_URL}`,
       chainId: 2001,
-      accounts: process.env.MILKOMEDAM_PK !== undefined ? [process.env.MILKOMEDAM_PK] : []
-    }
+      accounts:
+        process.env.MILKOMEDAM_PK !== undefined
+          ? [process.env.MILKOMEDAM_PK]
+          : [],
+    },
   },
   paths: {
     artifacts: "./artifacts",
@@ -59,8 +64,8 @@ const config: HardhatUserConfig = {
   },
   typechain: {
     outDir: "./typechain",
-    target: "ethers-v5"
-  }
+    target: "ethers-v5",
+  },
 };
 
 export default config;
