@@ -17,7 +17,22 @@ describe("Thank", function () {
     const Thank = await ethers.getContractFactory("Thank");
     const thank = await Thank.deploy();
 
-    return { thank, maxCap, owner, otherAccount, secondOtherAccount };
+    const StakingRewards = await ethers.getContractFactory("StakingRewards");
+    const stakingRewards = await StakingRewards.deploy(
+      thank.address,
+      thank.address
+    );
+
+    await thank.setStakingRewards(stakingRewards.address);
+
+    return {
+      thank,
+      stakingRewards,
+      maxCap,
+      owner,
+      otherAccount,
+      secondOtherAccount,
+    };
   }
 
   describe("Deployment", function () {
@@ -38,7 +53,7 @@ describe("Thank", function () {
   describe("Mint", function () {
     it("Should mint per the right proportion with Zero staked tokens and Zero Supply", async function () {
       const { thank, otherAccount } = await loadFixture(deployThankFixture);
-      await thank.mint(otherAccount.address, 0);
+      await thank.mint(otherAccount.address);
 
       expect(await thank.balanceOf(otherAccount.address)).to.equal(
         ethers.utils.parseEther("420000000")
@@ -46,11 +61,10 @@ describe("Thank", function () {
     });
 
     it("Should mint per 50% staked tokens and 42 Million supply", async function () {
-      const { thank, otherAccount, secondOtherAccount } = await loadFixture(
-        deployThankFixture
-      );
+      const { thank, stakingRewards, otherAccount, secondOtherAccount } =
+        await loadFixture(deployThankFixture);
 
-      await thank.mint(otherAccount.address, 0);
+      await thank.mint(otherAccount.address);
 
       expect(await thank.totalSupply()).to.equal(
         ethers.utils.parseEther("420000000")
@@ -60,10 +74,14 @@ describe("Thank", function () {
         ethers.utils.parseEther("420000000")
       );
 
-      await thank.mint(
-        secondOtherAccount.address,
-        ethers.utils.parseEther("210000000")
-      );
+      await thank
+        .connect(otherAccount)
+        .approve(stakingRewards.address, ethers.utils.parseEther("210000000"));
+      await stakingRewards
+        .connect(otherAccount)
+        .stake(ethers.utils.parseEther("210000000"));
+
+      await thank.mint(secondOtherAccount.address);
 
       expect(await thank.balanceOf(secondOtherAccount.address)).to.equal(
         ethers.utils.parseEther("209118000")

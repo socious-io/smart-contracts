@@ -1,205 +1,150 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.9;
 
-import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/security/Pausable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-import "./interfaces/IStackingRewards.sol";
-import "./RewardsDistributionRecipient.sol";
-
-contract StakingRewards is
-    Ownable,
-    IStakingRewards,
-    RewardsDistributionRecipient,
-    ReentrancyGuard,
-    Pausable
-{
-    using SafeMath for uint256;
+contract StakingRewards is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     /* ========== STATE VARIABLES ========== */
 
-    IERC20 public rewardsToken;
-    IERC20 public stakingToken;
-    uint256 public periodFinish = 0;
-    uint256 public rewardRate = 0;
-    uint256 public rewardsDuration = 7 days;
-    uint256 public lastUpdateTime;
-    uint256 public rewardPerTokenStored;
+    IERC20 public immutable stakingToken;
+    IERC20 public immutable rewardsToken;
 
+    // Duration of rewards to be paid out (in seconds)
+    uint256 public duration;
+    // Timestamp of when the rewards finish
+    uint256 public finishAt;
+    // Minimum of last updated time and reward finish time
+    uint256 public updatedAt;
+    // Reward to be paid out per second
+    uint256 public rewardRate;
+    // Sum of (reward rate * dt * 1e18 / total supply)
+    uint256 public rewardPerTokenStored;
+    // User address => rewardPerTokenStored
     mapping(address => uint256) public userRewardPerTokenPaid;
+    // User address => rewards to be claimed
     mapping(address => uint256) public rewards;
 
-    uint256 private _totalSupply;
-    mapping(address => uint256) private _balances;
+    // Total staked
+    uint256 public totalSupply;
+    // User address => staked amount
+    mapping(address => uint256) public balanceOf;
 
     /* ========== CONSTRUCTOR ========== */
 
-    constructor(
-        address _rewardsDistribution,
-        address _rewardsToken,
-        address _stakingToken
-    ) {
-        rewardsToken = IERC20(_rewardsToken);
+    constructor(address _stakingToken, address _rewardToken) {
         stakingToken = IERC20(_stakingToken);
-        rewardsDistribution = _rewardsDistribution;
+        rewardsToken = IERC20(_rewardToken);
     }
 
-    /* ========== VIEWS ========== */
+    modifier updateReward(address _account) {
+        rewardPerTokenStored = rewardPerToken();
+        updatedAt = lastTimeRewardApplicable();
 
-    function totalSupply() external view returns (uint256) {
-        return _totalSupply;
-    }
+        if (_account != address(0)) {
+            rewards[_account] = earned(_account);
+            userRewardPerTokenPaid[_account] = rewardPerTokenStored;
+        }
 
-    function balanceOf(address account) external view returns (uint256) {
-        return _balances[account];
+        _;
     }
 
     function lastTimeRewardApplicable() public view returns (uint256) {
-        return block.timestamp < periodFinish ? block.timestamp : periodFinish;
+        return _min(finishAt, block.timestamp);
     }
 
     function rewardPerToken() public view returns (uint256) {
-        if (_totalSupply == 0) {
+        if (totalSupply == 0) {
             return rewardPerTokenStored;
         }
+
         return
-            rewardPerTokenStored.add(
-                lastTimeRewardApplicable()
-                    .sub(lastUpdateTime)
-                    .mul(rewardRate)
-                    .mul(1e18)
-                    .div(_totalSupply)
-            );
+            rewardPerTokenStored +
+            (rewardRate * (lastTimeRewardApplicable() - updatedAt) * 1e18) /
+            totalSupply;
     }
 
-    function earned(address account) public view returns (uint256) {
-        return
-            _balances[account]
-                .mul(rewardPerToken().sub(userRewardPerTokenPaid[account]))
-                .div(1e18)
-                .add(rewards[account]);
-    }
-
-    function getRewardForDuration() external view returns (uint256) {
-        return rewardRate.mul(rewardsDuration);
-    }
-
-    /* ========== MUTATIVE FUNCTIONS ========== */
-
-    function stake(uint256 amount)
+    function stake(uint256 _amount)
         external
         nonReentrant
-        whenNotPaused
         updateReward(msg.sender)
     {
-        require(amount > 0, "Cannot stake 0");
-        _totalSupply = _totalSupply.add(amount);
-        _balances[msg.sender] = _balances[msg.sender].add(amount);
-        stakingToken.safeTransferFrom(msg.sender, address(this), amount);
-        emit Staked(msg.sender, amount);
+        require(_amount > 0, "amount = 0");
+        stakingToken.transferFrom(msg.sender, address(this), _amount);
+        balanceOf[msg.sender] += _amount;
+        totalSupply += _amount;
+        emit Staked(msg.sender, _amount);
     }
 
-    function withdraw(uint256 amount)
-        public
+    function withdraw(uint256 _amount)
+        external
         nonReentrant
         updateReward(msg.sender)
     {
-        require(amount > 0, "Cannot withdraw 0");
-        _totalSupply = _totalSupply.sub(amount);
-        _balances[msg.sender] = _balances[msg.sender].sub(amount);
-        stakingToken.safeTransfer(msg.sender, amount);
-        emit Withdrawn(msg.sender, amount);
+        require(_amount > 0, "amount = 0");
+        balanceOf[msg.sender] -= _amount;
+        totalSupply -= _amount;
+        stakingToken.transfer(msg.sender, _amount);
+
+        emit Withdrawn(msg.sender, _amount);
     }
 
-    function getReward() public nonReentrant updateReward(msg.sender) {
+    function earned(address _account) public view returns (uint256) {
+        return
+            ((balanceOf[_account] *
+                (rewardPerToken() - userRewardPerTokenPaid[_account])) / 1e18) +
+            rewards[_account];
+    }
+
+    function getReward() external nonReentrant updateReward(msg.sender) {
         uint256 reward = rewards[msg.sender];
         if (reward > 0) {
             rewards[msg.sender] = 0;
-            rewardsToken.safeTransfer(msg.sender, reward);
+            rewardsToken.transfer(msg.sender, reward);
+
             emit RewardPaid(msg.sender, reward);
         }
     }
 
-    function exit() external {
-        withdraw(_balances[msg.sender]);
-        getReward();
+    function setRewardsDuration(uint256 _duration) external onlyOwner {
+        require(finishAt < block.timestamp, "reward duration not finished");
+        duration = _duration;
     }
 
-    /* ========== RESTRICTED FUNCTIONS ========== */
-
-    function notifyRewardAmount(uint256 reward)
-        external
-        override
-        onlyRewardsDistribution
-        updateReward(address(0))
-    {
-        if (block.timestamp >= periodFinish) {
-            rewardRate = reward.div(rewardsDuration);
-        } else {
-            uint256 remaining = periodFinish.sub(block.timestamp);
-            uint256 leftover = remaining.mul(rewardRate);
-            rewardRate = reward.add(leftover).div(rewardsDuration);
-        }
-
-        // Ensure the provided reward amount is not more than the balance in the contract.
-        // This keeps the reward rate in the right range, preventing overflows due to
-        // very high values of rewardRate in the earned and rewardsPerToken functions;
-        // Reward + leftover must be less than 2^256 / 10^18 to avoid overflow.
-        uint256 balance = rewardsToken.balanceOf(address(this));
-        require(
-            rewardRate <= balance.div(rewardsDuration),
-            "Provided reward too high"
-        );
-
-        lastUpdateTime = block.timestamp;
-        periodFinish = block.timestamp.add(rewardsDuration);
-        emit RewardAdded(reward);
-    }
-
-    // Added to support recovering LP Rewards from other systems such as BAL to be distributed to holders
-    function recoverERC20(address tokenAddress, uint256 tokenAmount)
+    function notifyRewardAmount(uint256 _amount)
         external
         onlyOwner
+        updateReward(address(0))
     {
-        require(
-            tokenAddress != address(stakingToken),
-            "Cannot withdraw the staking token"
-        );
-        IERC20(tokenAddress).safeTransfer(owner(), tokenAmount);
-        emit Recovered(tokenAddress, tokenAmount);
-    }
-
-    function setRewardsDuration(uint256 _rewardsDuration) external onlyOwner {
-        require(
-            block.timestamp > periodFinish,
-            "Previous rewards period must be complete before changing the duration for the new period"
-        );
-        rewardsDuration = _rewardsDuration;
-        emit RewardsDurationUpdated(rewardsDuration);
-    }
-
-    /* ========== MODIFIERS ========== */
-
-    modifier updateReward(address account) {
-        rewardPerTokenStored = rewardPerToken();
-        lastUpdateTime = lastTimeRewardApplicable();
-        if (account != address(0)) {
-            rewards[account] = earned(account);
-            userRewardPerTokenPaid[account] = rewardPerTokenStored;
+        if (block.timestamp >= finishAt) {
+            rewardRate = _amount / duration;
+        } else {
+            uint256 remainingRewards = (finishAt - block.timestamp) *
+                rewardRate;
+            rewardRate = (_amount + remainingRewards) / duration;
         }
-        _;
+
+        require(rewardRate > 0, "reward rate = 0");
+        require(
+            rewardRate * duration <= rewardsToken.balanceOf(address(this)),
+            "reward amount > balance"
+        );
+
+        finishAt = block.timestamp + duration;
+        updatedAt = block.timestamp;
+
+        emit RewardAdded(_amount);
     }
 
-    /* ========== EVENTS ========== */
+    function _min(uint256 x, uint256 y) private pure returns (uint256) {
+        return x <= y ? x : y;
+    }
 
     event RewardAdded(uint256 reward);
     event Staked(address indexed user, uint256 amount);
     event Withdrawn(address indexed user, uint256 amount);
     event RewardPaid(address indexed user, uint256 reward);
-    event RewardsDurationUpdated(uint256 newDuration);
-    event Recovered(address token, uint256 amount);
 }

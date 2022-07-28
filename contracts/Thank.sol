@@ -4,11 +4,17 @@ pragma solidity ^0.8.9;
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 
+import "./StakingRewards.sol";
+
 contract Thank is ERC20, AccessControl {
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
     // Maximum Total Supply
     uint256 public maxCap;
+
+    StakingRewards stakingRewards;
+
+    event Minted(address indexed to, uint256 amount);
 
     constructor() ERC20("Thank", "THANK") {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
@@ -18,13 +24,19 @@ contract Thank is ERC20, AccessControl {
         maxCap = 100000000000 ether;
     }
 
-    function mint(address to, uint256 stakedAmount)
+    function setStakingRewards(address _stakingRewards)
         public
-        onlyRole(MINTER_ROLE)
+        onlyRole(DEFAULT_ADMIN_ROLE)
     {
+        stakingRewards = StakingRewards(_stakingRewards);
+    }
+
+    function mint(address to) public onlyRole(MINTER_ROLE) {
         require(to != address(0), "Thank: receiver is the zero address");
 
         uint256 amountInReserve = maxCap - totalSupply();
+
+        uint256 stakedAmount = stakingRewards.totalSupply();
 
         // amountInReserve * 0.42% * stakedProportion %
         uint256 amountToMint;
@@ -42,5 +54,7 @@ contract Thank is ERC20, AccessControl {
         );
 
         _mint(to, amountToMint);
+
+        emit Minted(to, amountToMint);
     }
 }
