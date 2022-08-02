@@ -3,17 +3,18 @@ pragma solidity ^0.8.8;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/interfaces/IERC20.sol";
-import "./IteratorMap.sol";
+import "hardhat/console.sol";
 
 contract Donate is Ownable {
-    using IterableMapping for itmap;
 
     address payable private _owner;
-    uint private _ownerFee = 1;
-
-    itmap TokenInterfaces; 
+    uint256 private _ownerFee = 1;
+    IERC20[] public tokenInts;
 
     error NotEnoughFunds(uint requested, uint available);
+
+    event Approval(address owner, address spender, uint256 value);
+    event Transfer(address from, address to, uint256 value);
 
     struct OrganizationData {
         address sender;
@@ -25,7 +26,7 @@ contract Donate is Ownable {
     struct IndividualData {
         uint ammount;
         int projectId;
-    } 
+    }
 
     mapping (address => OrganizationData[]) recieverHistory;
     mapping (address => IndividualData[]) senderHistory;
@@ -34,44 +35,54 @@ contract Donate is Ownable {
         address msgSender = _msgSender();
         _owner = payable(msgSender);
         emit OwnershipTransferred(address(0), msgSender);
-        TokenInterfaces.insert(0, IERC20(0xB44a9B6905aF7c801311e8F4E76932ee959c663C)); // USDC Mainnet
-        TokenInterfaces.insert(1, IERC20(0xD9Bc92569C14C1FB62Ff0CeE95aCE5d5de4b36EA)); // USDC Testnet
     }
 
-    function donate(int _projectId, address _targetAddress, uint256 _tokenIndex) external payable {
-        uint256 userBalance = TokenInterfaces.data[_tokenIndex].value.balanceOf(msg.sender);
+    function getTokenBalance(uint256 _token) public view returns(uint256) { 
+       return tokenInts[_token].balanceOf(msg.sender);
+    }
 
-        if(userBalance <= msg.value) {
-            revert NotEnoughFunds(msg.value, userBalance);
-        }
+    function approveTransfer(uint256 _token, address _spender, uint256 _ammount) external returns (bool) {
+        IERC20 token = tokenInts[_token];
+        uint256 currentBalance = token.balanceOf(msg.sender);
+        require(currentBalance > _ammount, "Not enough funds!");
+        bool success = token.approve(_spender, _ammount);
+        return success;
+    }
 
-        uint feeAmmount = (msg.value / 100) * getFee();
-        uint newAmmount = msg.value - feeAmmount;
+    function getAllowance(uint256 _token, address _spender) external view returns (uint256) {
+        IERC20 token = tokenInts[_token];
+        uint256 allowanceAmmount = token.allowance(msg.sender, _spender);
+        return allowanceAmmount;
+    }
+
+    function donate(int _projectId, address _targetAddress, uint256 _ammount, uint256 _token) external {
+        require(_ammount > 0, "Provide an ammount higher than 0");
+        uint256 feeAmmount = (_ammount / 100) * getFee();
+        uint256 newAmmount = _ammount - feeAmmount;
 
         recieverHistory[_targetAddress].push(OrganizationData({
             sender: msg.sender, 
-            fullAmmount: msg.value, 
+            fullAmmount: _ammount, 
             netAmmount: newAmmount, 
             projectId: _projectId}));
 
         senderHistory[msg.sender].push(IndividualData({
-            ammount: msg.value, 
+            ammount: _ammount, 
             projectId: _projectId}));
-
-        bool donationSuccess;
-        bool feeSucess;
-
-        donationSuccess = TokenInterfaces.data[_tokenIndex].value.transfer(_targetAddress, newAmmount);
-        feeSucess = TokenInterfaces.data[_tokenIndex].value.transfer(_owner, feeAmmount);
         
-        require((donationSuccess && feeSucess), "Failed to send money");
+        IERC20 token = tokenInts[_token];
+
+        bool sucessFee = token.transferFrom(msg.sender, _owner, feeAmmount);
+        require(sucessFee, "Fee payment has failed");
+        bool successDonation = token.transferFrom(msg.sender, _targetAddress, newAmmount);
+        require(successDonation, "Donation has failed");
     }
 
-    function getRecievedDonations(address _targetAddress) public view returns(OrganizationData[] memory) {
+    function getRecievedDonations(address _targetAddress) public view returns (OrganizationData[] memory) {
         return recieverHistory[_targetAddress];
     }
 
-    function getSentDonations(address _targetAddress) public view returns(IndividualData[] memory) {
+    function getSentDonations(address _targetAddress) public view returns (IndividualData[] memory) {
         return senderHistory[_targetAddress];
     }
 
@@ -88,25 +99,11 @@ contract Donate is Ownable {
         _changeFee(newFee);
     }
 
-    function _addToken(address _newToken, uint256 _newIndex) private {
-        bool tokenExists = TokenInterfaces.contains(_newIndex);
-
-        require(!tokenExists, "That index is already occupied, provided a new one");
-        TokenInterfaces.insert(_newIndex, IERC20(_newToken));
+    function getToken(uint256 tokenIndex) public view returns (IERC20) {
+        return tokenInts[tokenIndex];
     }
 
-    function addToken(address newToken, uint256 newIndex) public onlyOwner {
-        _addToken(newToken, newIndex);
-    }
-
-    function _deleteToken(uint256 _prevIndex) private {
-        bool tokenExists = TokenInterfaces.contains(_prevIndex);
-
-        require(tokenExists, "That index does not exists, provided a valid one");
-        TokenInterfaces.remove(_prevIndex);
-    }
-
-    function deleteToken(uint256 prevIndex) public onlyOwner {
-        _deleteToken(prevIndex);
+    function addTokens(address newToken) public onlyOwner {
+        tokenInts.push(IERC20(newToken));
     }
 }

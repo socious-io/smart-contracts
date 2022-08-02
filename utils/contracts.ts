@@ -1,4 +1,4 @@
-import { utils, Wallet, providers, Contract } from "ethers";
+import { utils, Wallet, providers, Contract, ContractFactory } from "ethers";
 import { getEnvVariable } from "./misc";
 import { loadJsonFile } from "./json";
 
@@ -23,27 +23,25 @@ export function getAccount() {
     return new Wallet(getPrivateKey(), getProvider());
 };
 
-function getAbi(contractName: string, fileName?: string) {
+export function getArtifact(path: string) {
+    const rootPath = require('app-root-path');
     let artifact;
     try {
-        if (fileName !== undefined) {
-            artifact = loadJsonFile(`artifacts/contracts/${fileName}.sol/${contractName}.json`);
-        } else {
-            artifact = loadJsonFile(`artifacts/contracts/${contractName}.sol/${contractName}.json`);
-        }
+        artifact = loadJsonFile(`${rootPath}/${path}`);
         return artifact['abi'];
     } catch (e) {
         console.error(e);
     }
 };
 
-export function getContract(contractName: string, contractAddress: string, contractFile?: string) {
+export function getContract(contractName: string, contractFile: string, contractAddress?: string) {
     const account = getAccount();
     if (contractAddress !== undefined && utils.isAddress(contractAddress)) {
-        const contractAbi = getAbi(contractName, contractFile);
-        return new Contract(contractAddress, contractAbi, account)
+        const artifact = getArtifact(contractFile);
+        return new Contract(contractAddress, artifact.abi, account)
     } else {
-        return new Contract(contractName, getEnvVariable(`${contractName}`), account)
+        const artifact = getArtifact(contractFile);
+        return new ContractFactory(artifact.abi, artifact.bytecode, account);
     }
 };
 
