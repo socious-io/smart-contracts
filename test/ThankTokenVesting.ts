@@ -27,6 +27,14 @@ describe("ThankTokenVesting", function () {
     const Thank = await ethers.getContractFactory("Thank");
     const thank = await Thank.deploy();
 
+    const StakingRewards = await ethers.getContractFactory("StakingRewards");
+    const stakingRewards = await StakingRewards.deploy(
+      thank.address,
+      thank.address
+    );
+
+    await thank.setStakingRewards(stakingRewards.address);
+
     return {
       thank,
       thankTokenVesting,
@@ -70,7 +78,7 @@ describe("ThankTokenVesting", function () {
       const { thank, thankTokenVesting, otherAccount } = await loadFixture(
         deployThankTokenVestingFixture
       );
-      await thank.mint(otherAccount.address, 0);
+      await thank.mint(otherAccount.address);
 
       expect(await thank.balanceOf(otherAccount.address)).to.equal(
         ethers.utils.parseEther("420000000")
