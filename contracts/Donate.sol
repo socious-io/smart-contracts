@@ -13,9 +13,6 @@ contract Donate is Ownable {
 
     error NotEnoughFunds(uint requested, uint available);
 
-    event Approval(address owner, address spender, uint256 value);
-    event Transfer(address from, address to, uint256 value);
-
     struct OrganizationData {
         address sender;
         uint fullAmmount;
@@ -45,8 +42,12 @@ contract Donate is Ownable {
         IERC20 token = tokenInts[_token];
         uint256 currentBalance = token.balanceOf(msg.sender);
         require(currentBalance > _ammount, "Not enough funds!");
-        bool success = token.approve(_spender, _ammount);
-        return success;
+        (bool success, bytes memory data) = 
+            address(token).call(
+                abi.encodeWithSelector(token.approve.selector, _spender, _ammount)
+            );
+        require(success && (data.length == 0 || abi.decode(data, (bool))), 'Approval Failed');
+        return true;
     }
 
     function getAllowance(uint256 _token, address _spender) external view returns (uint256) {
