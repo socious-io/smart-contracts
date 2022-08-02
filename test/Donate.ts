@@ -8,7 +8,7 @@ describe("Donate Mocks", async () => {
         const MockUSDC = await artifacts.readArtifact("MockUSDC")
         const DonateArtifact = await artifacts.readArtifact("Donate")
 
-        const [ owner, sender ] = await ethers.getSigners();
+        const [ owner, sender, reciever ] = await ethers.getSigners();
         
         const mockUSDCFactory = new ethers.ContractFactory(MockUSDC.abi, MockUSDC.bytecode, owner);
         const mockUSDCContract = await mockUSDCFactory.deploy();
@@ -17,7 +17,7 @@ describe("Donate Mocks", async () => {
         
         await donateContract.addTokens(mockUSDCContract.address);
 
-        return { owner, sender, mockUSDCContract, donateContract }
+        return { owner, sender, reciever, mockUSDCContract, donateContract }
     };
 
     describe("Validate functionalities of MockUSDC", async () => {
@@ -57,35 +57,36 @@ describe("Donate Mocks", async () => {
         });
     });
     
-    describe("Check functionalities of MockUSDC from Donate contract", async () => {
+    describe("Check functionalities from Donate using mockUSDC", async () => {
         it("Should list the expected token", async () => {
             const { mockUSDCContract, donateContract } = await loadFixture(donateSetup);
 
             expect(await donateContract.getToken(0)).to.equal(mockUSDCContract.address);
         });
 
-        it("Should mint tokens for sender wallet and update total supply", async () => {
-            const { sender, mockUSDCContract, donateContract } = await loadFixture(donateSetup);
-
-            await mockUSDCContract.mint(sender.address, parseUnits('3.0', 'ether'));
-
-            const newSenderDonate = donateContract.connect(sender);
-            expect(formatEther(await newSenderDonate.getTokenBalance(0))).to.equal('3.0');
-        });
-
-        it("Should approve and get correct allowance from Donate contract", async () => {
-            const { sender, mockUSDCContract, donateContract } = await loadFixture(donateSetup);
+        it("Should donate and update the balances from owner, sender and organization", async () => {
+            const { owner, sender, reciever, mockUSDCContract, donateContract } = await loadFixture(donateSetup);
 
             await mockUSDCContract.mint(sender.address, parseUnits('3.0', 'ether'));
 
             const senderDonate = donateContract.connect(sender);
+            const senderUsdc = mockUSDCContract.connect(sender);
 
-            console.log(`Contract Donate Address: ${sender.address}`);
+            await expect(await senderUsdc.approve(senderDonate.address, parseUnits("1.0", "ether")))
+                .to.emit(senderUsdc, "Approval")
+                .withArgs(sender.address, senderDonate.address, parseUnits("1.0", "ether"));
+            
+            const expectedFee = (parseUnits("1.0", "ether")).div(100);
+            const expectedDonation = (parseUnits("1.0", "ether")).sub(expectedFee);
 
-            await expect(await senderDonate
-                    .approveTransfer(0, senderDonate.address, parseUnits('1.0', 'ether')))
-                .to.emit(mockUSDCContract, "Approval")
-                .withArgs(senderDonate.address, senderDonate.address, parseUnits("1.0", "ether"));
-        });      
+            await expect(await senderDonate.donate(123, reciever.address, 
+                    parseUnits("1.0", "ether"), 0))
+                .to.emit(senderDonate, "Donation")
+                .withArgs(expectedFee, expectedDonation, reciever.address);
+
+            expect(formatEther(await mockUSDCContract.balanceOf(sender.address))).to.equal("2.0");
+            expect(formatEther(await mockUSDCContract.balanceOf(owner.address))).to.equal(formatEther(expectedFee));
+            expect(formatEther(await mockUSDCContract.balanceOf(reciever.address))).to.equal(formatEther(expectedDonation));
+        });
     });
 });

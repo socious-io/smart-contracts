@@ -12,6 +12,8 @@ contract Donate is Ownable {
     IERC20[] public tokenInts;
 
     error NotEnoughFunds(uint requested, uint available);
+    
+    event Donation(uint256 feeAmmount, uint256 donationAmmount, address recieverOrg);
 
     struct OrganizationData {
         address sender;
@@ -34,49 +36,32 @@ contract Donate is Ownable {
         emit OwnershipTransferred(address(0), msgSender);
     }
 
-    function getTokenBalance(uint256 _token) public view returns(uint256) { 
-       return tokenInts[_token].balanceOf(msg.sender);
-    }
-
-    function approveTransfer(uint256 _token, address _spender, uint256 _ammount) external returns (bool) {
-        IERC20 token = tokenInts[_token];
-        uint256 currentBalance = token.balanceOf(msg.sender);
-        require(currentBalance > _ammount, "Not enough funds!");
-        (bool success, bytes memory data) = 
-            address(token).call(
-                abi.encodeWithSelector(token.approve.selector, _spender, _ammount)
-            );
-        require(success && (data.length == 0 || abi.decode(data, (bool))), 'Approval Failed');
-        return true;
-    }
-
-    function getAllowance(uint256 _token, address _spender) external view returns (uint256) {
-        IERC20 token = tokenInts[_token];
-        uint256 allowanceAmmount = token.allowance(msg.sender, _spender);
-        return allowanceAmmount;
-    }
-
     function donate(int _projectId, address _targetAddress, uint256 _ammount, uint256 _token) external {
-        require(_ammount > 0, "Provide an ammount higher than 0");
-        uint256 feeAmmount = (_ammount / 100) * getFee();
-        uint256 newAmmount = _ammount - feeAmmount;
+        IERC20 token = tokenInts[_token];
+        uint256 userBalance = token.balanceOf(msg.sender);
+        uint256 contractAllowance = token.allowance(msg.sender, address(this));
+
+        require((_ammount > 0) && (userBalance > _ammount) && (contractAllowance >= _ammount), 
+            "Provide an ammount higher than 0");
+
+        uint256 _feeAmmount = (_ammount / 100) * getFee();
+        uint256 _newAmmount = _ammount - _feeAmmount;
 
         recieverHistory[_targetAddress].push(OrganizationData({
             sender: msg.sender, 
             fullAmmount: _ammount, 
-            netAmmount: newAmmount, 
+            netAmmount: _newAmmount, 
             projectId: _projectId}));
 
         senderHistory[msg.sender].push(IndividualData({
             ammount: _ammount, 
             projectId: _projectId}));
-        
-        IERC20 token = tokenInts[_token];
 
-        bool sucessFee = token.transferFrom(msg.sender, _owner, feeAmmount);
+        bool sucessFee = token.transferFrom(msg.sender, _owner, _feeAmmount);
         require(sucessFee, "Fee payment has failed");
-        bool successDonation = token.transferFrom(msg.sender, _targetAddress, newAmmount);
+        bool successDonation = token.transferFrom(msg.sender, _targetAddress, _newAmmount);
         require(successDonation, "Donation has failed");
+        emit Donation(_feeAmmount, _newAmmount, _targetAddress);
     }
 
     function getRecievedDonations(address _targetAddress) public view returns (OrganizationData[] memory) {
