@@ -44,9 +44,17 @@ contract Escrow is Ownable {
     // Registry for contributors and their transactions
     mapping(address => TransactionData[]) public contributorsHistory;
 
-    event EscrowAction(uint256 totalFee, uint256 contAmmount, 
-        address orgAddress, address contAddress);
-    event DecisionNotification(address _organizationUser, address _contributorUser, uint _escrowIndex);
+    event EscrowAction(
+        uint256 totalFee, 
+        uint256 contAmmount, 
+        address orgAddress, 
+        address contAddress);
+    event DecisionNotification(
+        address _organizationUser, 
+        address _contributorUser, 
+        uint256 _escrowIndex, 
+        uint256 refundAmmount, 
+        uint256 feeAmmount);
 
     constructor () {
         address msgSender = _msgSender();
@@ -146,7 +154,7 @@ contract Escrow is Ownable {
      
     function newEscrow(
         address _contributorAddress, 
-        uint _projectId, 
+        uint256 _projectId, 
         uint256 _orgType,
         uint256 _ammount,
         uint256 _token
@@ -278,7 +286,7 @@ contract Escrow is Ownable {
             uint256 totalFees = organizationsHistory[msg.sender][escrowId_].organizationFee 
                     + organizationsHistory[msg.sender][escrowId_].contributorFee;
             
-            require(token.balanceOf(address(this)) >= totalFees+totalTransfer, 
+            require(token.balanceOf(address(this)) >= totalFees + totalTransfer, 
                 "Not enough funds at the contract");
             bool successTransfer = token.transfer(contributorAddress_, totalTransfer);
             require(successTransfer, "Transfer to contributor have failed");
@@ -292,26 +300,51 @@ contract Escrow is Ownable {
     }
     
     // Decision = 0 is for refunding Organization. Decision = 1 is for releasing funds to contributor
-    function escrowDecision(uint decision_, address payable contributorAddress_, address payable organizationAddress_, uint projectId_, uint transactionAmmount_) public payable onlyOwner returns(bool){
-        uint escrowId_ = getTransactionNumber(organizationAddress_, contributorAddress_, projectId_, transactionAmmount_) - 1;
-        require(organizationsHistory[organizationAddress_][escrowId_].isCanceled == false);
-        if (decision_ == 0) {
-            uint _retentionFee = (transactionAmmount_ / 100) * getDecisionRetentionFee();
-            (bool successRefund, ) = payable(organizationAddress_).call{value: transactionAmmount_ - _retentionFee - tx.gasprice}("");
-            require(successRefund, "The refunding has fail");
-            (bool successFunding, ) = payable(msg.sender).call{value: _retentionFee}("");
-            require(successFunding, "The transfer to Escrow Agent Failed");
+    function escrowDecision(
+        uint256 decision_, 
+        address contributorAddress_, 
+        address organizationAddress_, 
+        uint256 projectId_, 
+        uint256 transactionAmmount_,
+        uint256 _token)
+        public onlyOwner {
+            IERC20 token = tokenInts[_token];
+
+            uint escrowId_ = getTransactionNumber(organizationAddress_, 
+                contributorAddress_, 
+                projectId_, 
+                transactionAmmount_) - 1;
+
+            require(organizationsHistory[organizationAddress_][escrowId_].isCanceled == false, 
+                "The Escrow has already been canceled!");
+
+            uint256 toRefund;
+            uint256 toKeep;
+            address targetRefund;
+
+            if (decision_ == 0) {
+                // Refunds to Organization
+                toKeep = (transactionAmmount_ / 100) * getDecisionRetentionFee();
+                toRefund = transactionAmmount_ - toKeep;
+                targetRefund = organizationAddress_;
+            } else {
+                // Refunds to Contributor
+                toRefund = organizationsHistory[organizationAddress_][escrowId_].netAmmount;
+                targetRefund = contributorAddress_;
+                toKeep = organizationsHistory[organizationAddress_][escrowId_].organizationFee 
+                    + organizationsHistory[organizationAddress_][escrowId_].contributorFee;
+            }
+
+            require(token.balanceOf(address(this)) >= toRefund + toKeep, 
+                "Not enough funds at the contract");
+            bool successRefund = token.transfer(targetRefund, toRefund);
+            bool successTransfer = token.transfer(_owner, toKeep);
+            require(successRefund && successTransfer, "The transfers have failed");
+
             organizationsHistory[organizationAddress_][escrowId_].isCanceled = true;
-        } 
-        else {
-            (bool successTransfer, ) = payable(contributorAddress_).call{value: organizationsHistory[organizationAddress_][escrowId_].netAmmount}("");
-            require(successTransfer, "The transfer has fail");
-            (bool successFunding, ) = payable(msg.sender).call{value: organizationsHistory[organizationAddress_][escrowId_].organizationFee + organizationsHistory[organizationAddress_][escrowId_].organizationFee}("");
-            require(successFunding, "The transfer to Escrow Agent Failed");
-            organizationsHistory[organizationAddress_][escrowId_].isCanceled = true;
-        }
-        emit DecisionNotification(organizationAddress_, contributorAddress_, escrowId_);
-        return true;
+            emit DecisionNotification(organizationAddress_, 
+                contributorAddress_, escrowId_,
+                toRefund, toKeep);
     }
 
     function getToken(uint256 tokenIndex) public view returns (IERC20) {
