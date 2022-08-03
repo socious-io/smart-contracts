@@ -76,5 +76,105 @@ describe("Escrow", async () => {
             .to.equal(formatEther(expectedFees));
         expect(formatEther(await mockUsdcContract.balanceOf(reciever.address)))
             .to.equal(formatEther(expectedAmmount));
-    })
-})
+    });
+
+    describe("Resolution for escrow decision and helper functions", async () => {
+        it("Should refund to organization", async () => {
+            const { owner, sender, reciever, 
+                mockUsdcContract, escrowContract } = await loadFixture(escrowSetup);
+
+            await mockUsdcContract.mint(sender.address, parseUnits("3.0", "ether"));
+
+            const senderUsdc = mockUsdcContract.connect(sender);
+            const senderEscrow = escrowContract.connect(sender);
+            const oneEther = parseUnits("1.0", "ether");
+    
+            await senderUsdc.approve(escrowContract.address, oneEther);
+            await senderEscrow.newEscrow(
+                    reciever.address, 
+                    123, 
+                    1, 
+                    oneEther, 
+                    0);
+            
+            const expectedFee = (oneEther.div(100)).mul(
+                await senderEscrow.getDecisionRetentionFee());
+            const expectedRefund = oneEther.sub(expectedFee);
+            const escrowId = (await senderEscrow.getTransactionNumber(
+                sender.address,
+                reciever.address,
+                123,
+                oneEther
+            )).sub(1);
+
+            await expect(await escrowContract.escrowDecision(
+                    0,
+                    reciever.address,
+                    sender.address,
+                    123,
+                    oneEther,
+                    0,
+                    { gasLimit: 100000 }))
+                .to.emit(escrowContract, "DecisionNotification")
+                .withArgs(
+                    sender.address,
+                    reciever.address,
+                    escrowId,
+                    expectedRefund,
+                    expectedFee);
+
+            expect(formatEther(await mockUsdcContract.balanceOf(sender.address)))
+                .to.equal(formatEther((parseUnits("3.0", "ether")).sub(expectedFee)));
+            expect(formatEther(await mockUsdcContract.balanceOf(owner.address)))
+                .to.equal(formatEther(expectedFee));
+            expect(formatEther(await mockUsdcContract.balanceOf(reciever.address)))
+                .to.equal("0.0");
+        });
+
+        it("Should refund to contributor", async() => {
+            const { owner, sender, reciever, 
+                mockUsdcContract, escrowContract } = await loadFixture(escrowSetup);
+
+            await mockUsdcContract.mint(sender.address, parseUnits("3.0", "ether"));
+
+            const senderUsdc = mockUsdcContract.connect(sender);
+            const senderEscrow = escrowContract.connect(sender);
+            const oneEther = parseUnits("1.0", "ether");
+    
+            await senderUsdc.approve(escrowContract.address, oneEther);
+            await senderEscrow.newEscrow(
+                    reciever.address, 
+                    123, 
+                    1, 
+                    oneEther, 
+                    0);
+            
+            const expectedFees = ((oneEther.div(100)).mul(10))
+                .add((oneEther.div(100)).mul(3));
+            const expectedAmmount = oneEther.sub(expectedFees);
+
+            await expect(await escrowContract.escrowDecision(
+                1,
+                reciever.address,
+                sender.address,
+                123,
+                oneEther,
+                0,
+                { gasLimit: 125000 }))
+            .to.emit(escrowContract, "DecisionNotification")
+            .withArgs(
+                sender.address,
+                reciever.address,
+                0,
+                expectedAmmount,
+                expectedFees);
+
+            expect(formatEther(await mockUsdcContract.balanceOf(sender.address)))
+                .to.equal("2.0");
+            expect(formatEther(await mockUsdcContract.balanceOf(owner.address)))
+                .to.equal(formatEther(expectedFees));
+            expect(formatEther(await mockUsdcContract.balanceOf(reciever.address)))
+                .to.equal(formatEther(expectedAmmount));
+        });
+    });
+});
