@@ -3,6 +3,7 @@ pragma solidity ^0.8.4;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/interfaces/IERC20.sol";
+import "hardhat/console.sol";
 
 contract Escrow is Ownable {
 
@@ -117,63 +118,78 @@ contract Escrow is Ownable {
     function setDecisionRetentionFee(uint newFee) public onlyOwner {
         _setDecisionRetentionFee(newFee);
     }
-     
-    function newEscrow(address _contributorAddress, uint _projectId, 
-            uint256 _orgType, uint256 _token
-            ) public payable {
-        // The organization will create the Escrow after negotiations with the contributor and will 
-        // provide the necessary information regarding their aggrement. This is definitory and should be done
-        // only after both parties have agreed with the contract
 
-        require(msg.value > 0 && msg.sender != _contributorAddress,
-            "Invalid parameters");
+    function _calculatesFees(uint256 baseValue, uint256 feeType)
+        internal view returns (uint256, uint256, 
+            uint256, uint256) 
+        {
+            uint organizationFee_;
+            uint contributorFee_;
+            if (feeType == 1) { // 1 Stands for Non Impact organizations
+                organizationFee_ = getNoImpactOrgFee();
+                contributorFee_ = getNoImpactContFee();
+            } else if (feeType == 2) { // 2 Stands for Impact organizations
+                organizationFee_ = getImpactOrgFee();
+                contributorFee_ = getImpactContFee();
+            }
 
-        IERC20 token = tokenInts[_token];
-        require(token.balanceOf(msg.sender) > msg.value);
-    
-        //Store escrow details in memory
-        EscrowData memory currentEscrow;
-        TransactionData memory currentTransaction;
-        
-        currentEscrow.contributor = _contributorAddress;
-        currentEscrow.projectId = _projectId;
-        
-        // Fee calculation
-        uint organizationFee_;
-        uint contributorFee_;
-        if (_orgType == 1) { // 1 Stands for Non Impact organizations
-            organizationFee_ = getNoImpactOrgFee();
-            contributorFee_ = getNoImpactContFee();
-        } else if (_orgType == 2) { // 2 Stands for Impact organizations
-            organizationFee_ = getImpactOrgFee();
-            contributorFee_ = getImpactContFee();
+            require(organizationFee_ > 0 && contributorFee_ > 0, "Provide a valid Organization Type");
+
+            uint feeContributor = (baseValue / 100) * contributorFee_;
+            uint feeOrganization = (baseValue / 100) * organizationFee_;
+            uint totalFee = feeOrganization + feeContributor;
+            uint totalTransaction = baseValue - totalFee;
+
+            return (feeContributor, feeOrganization, 
+                totalFee, totalTransaction);
         }
-        require(organizationFee_ > 0 && contributorFee_ > 0, "Provide a valid Organization Type");
-        uint totalContributor_ = (msg.value / 100) * contributorFee_;
-        uint totalOrganization = (msg.value / 100) * organizationFee_;
-        uint totalFees = totalOrganization + totalContributor_;
-        uint transactionFunds = msg.value - totalFees;
+     
+    function newEscrow(
+        address _contributorAddress, 
+        uint _projectId, 
+        uint256 _orgType,
+        uint256 _ammount,
+        uint256 _token
+        ) public {
+            // The organization will create the Escrow after negotiations with the contributor and will 
+            // provide the necessary information regarding their aggrement. This is definitory and should be done
+            // only after both parties have agreed with the contract
 
-        currentEscrow.isInProgress = true;
-        //These default to false, no need to set them again
-        /* currentEscrow.isFinished = false;
-           currentEscrow.isCanceled = false;  */ 
+            require(_ammount > 0 && msg.sender != _contributorAddress,
+                "Invalid parameters");
 
-        currentEscrow.netAmmount = transactionFunds;
-        currentEscrow.organizationFee = totalOrganization;
-        currentEscrow.contributorFee = totalContributor_;
+            IERC20 token = tokenInts[_token];
 
-        // Links this transaction to seller list of transactions
-        currentTransaction.organizationUser = msg.sender;
-        currentTransaction.projectId = _projectId;
-        currentTransaction.transactionAmmount = msg.value;
-        currentTransaction.transactionNumber = organizationsHistory[msg.sender].length;
+            require(token.balanceOf(msg.sender) >= _ammount, "Not enough funds");
+            require(token.allowance(msg.sender, address(this)) >= _ammount, "Not enough allowance");
+            
+            // Fee calculation
+            (uint256 totalContributor, uint256 totalOrganization,
+                uint256 totalFees, uint256 transactionFunds) = 
+                _calculatesFees(_ammount, _orgType);
 
-        // Save data to blockchain storage
-        contributorsHistory[_contributorAddress].push(currentTransaction);
-        organizationsHistory[msg.sender].push(currentEscrow);
-        
-        emit EscrowAction(totalFees, transactionFunds, msg.sender, _contributorAddress);
+            // Save data to blockchain storage
+            contributorsHistory[_contributorAddress].push(TransactionData({
+                organizationUser: msg.sender,
+                projectId: _projectId,
+                transactionAmmount: _ammount,
+                transactionNumber: organizationsHistory[msg.sender].length
+            }));
+            organizationsHistory[msg.sender].push(EscrowData({
+                contributor: _contributorAddress,
+                projectId: _projectId,
+                isInProgress: true,
+                isFinished: false,
+                isCanceled: false,
+                netAmmount: transactionFunds,
+                organizationFee: totalOrganization,
+                contributorFee: totalContributor
+            }));
+            
+            bool successLock = token.transferFrom(msg.sender, address(this), _ammount);
+            require(successLock, "Funds lockment have failed!");
+
+            emit EscrowAction(totalFees, transactionFunds, msg.sender, _contributorAddress);
     }
 
     function getTransactionNumber(address _organizationAddress, address _contributorAddress, uint _projectId, uint _transactionAmmount) public view returns(uint) {
@@ -189,7 +205,7 @@ contract Escrow is Ownable {
         return targetTransaction_;
     }
 
-    function getTransactionIndex(address _organizationAddress, address _contributorAddress, uint _projectId, uint _transactionAmmount) public view returns(uint){
+    function getTransactionIndex(address _organizationAddress, address _contributorAddress, uint _projectId, uint _transactionAmmount) public view returns(uint) {
     uint targetIndex_ = 0;
 
     for (uint i = 0; i < contributorsHistory[_contributorAddress].length; i++){
@@ -239,12 +255,12 @@ contract Escrow is Ownable {
         return (status);
     }
 
-    function transferFunds (
+    function withdrawFunds (
         address contributorAddress_, 
-        uint projectId_, 
-        uint transactionAmmount_, 
-        uint256 _token) 
-        external {
+        uint256 projectId_, 
+        uint256 transactionAmmount_, 
+        uint256 _token
+        ) external {
             IERC20 token = tokenInts[_token];
 
             require(_validateOrganizationUser(contributorAddress_, projectId_, transactionAmmount_), 
@@ -254,28 +270,25 @@ contract Escrow is Ownable {
                 contributorAddress_, 
                 projectId_, 
                 transactionAmmount_) - 1;
+            
             require((organizationsHistory[msg.sender][escrowId_].isCanceled == false), 
                     "The contract has already been terminated");
-
-            uint256 userBalance = token.balanceOf(msg.sender);
-            require(userBalance > msg.value, "Not enough funds!");
-            uint256 contractAllowance = token.allowance(msg.sender, address(this));
-            require(contractAllowance >= msg.value, "Not enough allowance");
 
             uint256 totalTransfer = organizationsHistory[msg.sender][escrowId_].netAmmount;
             uint256 totalFees = organizationsHistory[msg.sender][escrowId_].organizationFee 
                     + organizationsHistory[msg.sender][escrowId_].contributorFee;
-
-            bool successTransfer = token.transferFrom(msg.sender, 
-                contributorAddress_, totalTransfer);
+            
+            require(token.balanceOf(address(this)) >= totalFees+totalTransfer, 
+                "Not enough funds at the contract");
+            bool successTransfer = token.transfer(contributorAddress_, totalTransfer);
             require(successTransfer, "Transfer to contributor have failed");
 
-            (bool successFess, ) = token.transferFrom(msg.sender, _owner, totalFees);
+            bool successFess = token.transfer(_owner, totalFees);
             require(successFess, "Fees payment have failed");
 
             organizationsHistory[msg.sender][escrowId_].isFinished = true;
 
-            emit EscrowAction(totalFees, totalTransfer, msg.sender, _contributorAddress);
+            emit EscrowAction(totalFees, totalTransfer, msg.sender, contributorAddress_);
     }
     
     // Decision = 0 is for refunding Organization. Decision = 1 is for releasing funds to contributor
@@ -299,5 +312,13 @@ contract Escrow is Ownable {
         }
         emit DecisionNotification(organizationAddress_, contributorAddress_, escrowId_);
         return true;
+    }
+
+    function getToken(uint256 tokenIndex) public view returns (IERC20) {
+        return tokenInts[tokenIndex];
+    }
+
+    function addTokens(address newToken) public onlyOwner {
+        tokenInts.push(IERC20(newToken));
     }
 }

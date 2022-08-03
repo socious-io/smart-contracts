@@ -3,7 +3,7 @@ import { ethers, artifacts } from "hardhat";
 import { parseUnits, formatEther } from "ethers/lib/utils";
 import { loadFixture } from "@nomicfoundation/hardhat-network-helpers";
 
-describe("Donate Mocks", async () => {
+describe("Donate", async () => {
     async function donateSetup() {
         const MockUSDC = await artifacts.readArtifact("MockUSDC")
         const DonateArtifact = await artifacts.readArtifact("Donate")
