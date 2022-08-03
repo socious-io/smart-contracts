@@ -2,6 +2,7 @@
 pragma solidity ^0.8.4;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/interfaces/IERC20.sol";
 
 contract Escrow is Ownable {
 
@@ -11,6 +12,7 @@ contract Escrow is Ownable {
     uint private _noImpactOrgFee = 3;
     uint private _impactOrgFee = 2;
     uint private _decisionRetentionFee = 1;
+    IERC20[] public tokenInts;
     
     //Used to store buyer's transactions and for buyers to interact with his transactions. (Such as releasing funds to seller)
     struct EscrowData {
@@ -41,6 +43,8 @@ contract Escrow is Ownable {
     // Registry for contributors and their transactions
     mapping(address => TransactionData[]) public contributorsHistory;
 
+    event EscrowAction(uint256 totalFee, uint256 contAmmount, 
+        address orgAddress, address contAddress);
     event DecisionNotification(address _organizationUser, address _contributorUser, uint _escrowIndex);
 
     constructor () {
@@ -114,11 +118,18 @@ contract Escrow is Ownable {
         _setDecisionRetentionFee(newFee);
     }
      
-    function newEscrow(address _contributorAddress, uint _projectId, uint _orgType) public payable returns(bool) {
+    function newEscrow(address _contributorAddress, uint _projectId, 
+            uint256 _orgType, uint256 _token
+            ) public payable {
         // The organization will create the Escrow after negotiations with the contributor and will 
         // provide the necessary information regarding their aggrement. This is definitory and should be done
         // only after both parties have agreed with the contract
-        require(msg.value > 0 && msg.sender.balance >= msg.value && msg.sender != _contributorAddress);
+
+        require(msg.value > 0 && msg.sender != _contributorAddress,
+            "Invalid parameters");
+
+        IERC20 token = tokenInts[_token];
+        require(token.balanceOf(msg.sender) > msg.value);
     
         //Store escrow details in memory
         EscrowData memory currentEscrow;
@@ -162,7 +173,7 @@ contract Escrow is Ownable {
         contributorsHistory[_contributorAddress].push(currentTransaction);
         organizationsHistory[msg.sender].push(currentEscrow);
         
-        return true;
+        emit EscrowAction(totalFees, transactionFunds, msg.sender, _contributorAddress);
     }
 
     function getTransactionNumber(address _organizationAddress, address _contributorAddress, uint _projectId, uint _transactionAmmount) public view returns(uint) {
@@ -228,20 +239,43 @@ contract Escrow is Ownable {
         return (status);
     }
 
-    function transferFunds(address payable contributorAddress_, uint projectId_, uint transactionAmmount_) public payable returns(bool){
-        require(_validateOrganizationUser(contributorAddress_, projectId_, transactionAmmount_), "Only the organization can complete the project");
-        uint escrowId_ = getTransactionNumber(msg.sender, contributorAddress_, projectId_, transactionAmmount_) - 1;
-        require((organizationsHistory[msg.sender][escrowId_].isCanceled == false), "The contract has already been terminated");
+    function transferFunds (
+        address contributorAddress_, 
+        uint projectId_, 
+        uint transactionAmmount_, 
+        uint256 _token) 
+        external {
+            IERC20 token = tokenInts[_token];
 
-        (bool successTransfer, ) = payable(contributorAddress_).call{value: organizationsHistory[msg.sender][escrowId_].netAmmount}("");
-        require(successTransfer, "Transfer to contributor failed");
+            require(_validateOrganizationUser(contributorAddress_, projectId_, transactionAmmount_), 
+                    "Only the organization can complete the project");
+                    
+            uint escrowId_ = getTransactionNumber(msg.sender, 
+                contributorAddress_, 
+                projectId_, 
+                transactionAmmount_) - 1;
+            require((organizationsHistory[msg.sender][escrowId_].isCanceled == false), 
+                    "The contract has already been terminated");
 
-        (bool successFunding, ) = payable(_owner).call{value: organizationsHistory[msg.sender][escrowId_].organizationFee + organizationsHistory[msg.sender][escrowId_].contributorFee}("");
-        require(successFunding, "Transfer to owner failed");
+            uint256 userBalance = token.balanceOf(msg.sender);
+            require(userBalance > msg.value, "Not enough funds!");
+            uint256 contractAllowance = token.allowance(msg.sender, address(this));
+            require(contractAllowance >= msg.value, "Not enough allowance");
 
-        organizationsHistory[msg.sender][escrowId_].isFinished = true;
+            uint256 totalTransfer = organizationsHistory[msg.sender][escrowId_].netAmmount;
+            uint256 totalFees = organizationsHistory[msg.sender][escrowId_].organizationFee 
+                    + organizationsHistory[msg.sender][escrowId_].contributorFee;
 
-        return true;
+            bool successTransfer = token.transferFrom(msg.sender, 
+                contributorAddress_, totalTransfer);
+            require(successTransfer, "Transfer to contributor have failed");
+
+            (bool successFess, ) = token.transferFrom(msg.sender, _owner, totalFees);
+            require(successFess, "Fees payment have failed");
+
+            organizationsHistory[msg.sender][escrowId_].isFinished = true;
+
+            emit EscrowAction(totalFees, totalTransfer, msg.sender, _contributorAddress);
     }
     
     // Decision = 0 is for refunding Organization. Decision = 1 is for releasing funds to contributor

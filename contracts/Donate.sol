@@ -3,7 +3,6 @@ pragma solidity ^0.8.8;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/interfaces/IERC20.sol";
-import "hardhat/console.sol";
 
 contract Donate is Ownable {
 
