@@ -10,17 +10,19 @@ export function loadJsonFile(file: string) {
     }   
 };
 
-export function writeJsonFile(args: {path: string; data: Object | ((arg: Object) => void)}) {
+export function writeJsonFile(args: {data: any, path: string, mode?: string}) {
     const appRoot = require("app-root-path");
-    const prevData = loadJsonFile(args.path);
+    let prevData: any;
+    if (args.mode === "a") {
+        prevData = loadJsonFile(args.path);
+    } else {
+        prevData = {}
+    }
     const parsedData = JSON.stringify(
-        typeof args.data === "function"
-            ? { ...args.data(prevData) }
-            : { ...prevData, ...args.data },
+        { ...prevData, ...args.data },
         null,
         2
     );
-    console.log("Writting", appRoot + args.path);
     fs.writeFileSync(appRoot + args.path, parsedData);
-    console.log(`Generated ${appRoot}${args.path}`);
+    console.log(`Filed written to: ${appRoot}${args.path}`);
 };
