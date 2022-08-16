@@ -38,7 +38,7 @@ const config: HardhatUserConfig = {
       },
     ],
   },
-  defaultNetwork: "milkomedaTest",
+  defaultNetwork: "localhost",
   networks: {
     milkomedaTest: {
       url: `${process.env.MILKOMEDAT_URL}`,

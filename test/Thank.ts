@@ -51,12 +51,20 @@ describe("Thank", function () {
   });
 
   describe("Mint", function () {
+    it("Should premint 70% of the total max cap", async function () {
+      const { thank, owner } = await loadFixture(deployThankFixture);
+
+      expect(await thank.balanceOf(owner.address)).to.equal(
+        ethers.utils.parseEther("70000000000")
+      );
+    });
+
     it("Should mint per the right proportion with Zero staked tokens and Zero Supply", async function () {
       const { thank, otherAccount } = await loadFixture(deployThankFixture);
       await thank.mint(otherAccount.address);
 
       expect(await thank.balanceOf(otherAccount.address)).to.equal(
-        ethers.utils.parseEther("420000000")
+        ethers.utils.parseEther("126000000")
       );
     });
 
@@ -67,24 +75,24 @@ describe("Thank", function () {
       await thank.mint(otherAccount.address);
 
       expect(await thank.totalSupply()).to.equal(
-        ethers.utils.parseEther("420000000")
+        ethers.utils.parseEther("70126000000")
       );
 
       expect(await thank.balanceOf(otherAccount.address)).to.equal(
-        ethers.utils.parseEther("420000000")
+        ethers.utils.parseEther("126000000")
       );
 
       await thank
         .connect(otherAccount)
-        .approve(stakingRewards.address, ethers.utils.parseEther("210000000"));
+        .approve(stakingRewards.address, ethers.utils.parseEther("126000000"));
       await stakingRewards
         .connect(otherAccount)
-        .stake(ethers.utils.parseEther("210000000"));
+        .stake(ethers.utils.parseEther("126000000"));
 
       await thank.mint(secondOtherAccount.address);
 
       expect(await thank.balanceOf(secondOtherAccount.address)).to.equal(
-        ethers.utils.parseEther("209118000")
+        ethers.utils.parseEther("225441.645038929926132960")
       );
     });
   });
