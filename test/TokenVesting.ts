@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { BigNumber } from "ethers";
 import { ethers } from "hardhat";
 
-describe("ThankTokenVesting", function () {
+describe("TokenVesting", function () {
   // We define a fixture to reuse the same setup in every test.
   // We use loadFixture to run this setup once, snapshot that state,
   // and reset Hardhat Network to that snapshopt in every test.
@@ -13,15 +13,14 @@ describe("ThankTokenVesting", function () {
     const duration = BigNumber.from("1"); // in seconds
 
     // Contracts are deployed using the first signer/account by default
-    const [owner, otherAccount, secondOtherAccount] = await ethers.getSigners();
+    const [owner, otherAccount, vestingManager] = await ethers.getSigners();
 
-    const ThankTokenVesting = await ethers.getContractFactory(
-      "ThankTokenVesting"
-    );
-    const thankTokenVesting = await ThankTokenVesting.deploy(
+    const TokenVesting = await ethers.getContractFactory("TokenVesting");
+    const tokenVesting = await TokenVesting.deploy(
       otherAccount.address,
       startTimestamp,
-      duration
+      duration,
+      vestingManager.address
     );
 
     const Thank = await ethers.getContractFactory("Thank");
@@ -37,68 +36,89 @@ describe("ThankTokenVesting", function () {
 
     return {
       thank,
-      thankTokenVesting,
+      tokenVesting,
       startTimestamp,
       duration,
       owner,
       otherAccount,
-      secondOtherAccount,
+      vestingManager,
     };
   }
 
   describe("Deployment", function () {
     it("Should set the right start", async function () {
-      const { thankTokenVesting, startTimestamp } = await loadFixture(
+      const { tokenVesting, startTimestamp } = await loadFixture(
         deployThankTokenVestingFixture
       );
-      expect(await thankTokenVesting.start()).to.equal(startTimestamp);
+      expect(await tokenVesting.start()).to.equal(startTimestamp);
     });
 
     it("Should set the right duration", async function () {
-      const { thankTokenVesting, duration } = await loadFixture(
+      const { tokenVesting, duration } = await loadFixture(
         deployThankTokenVestingFixture
       );
 
-      expect(await thankTokenVesting.duration()).to.equal(duration);
+      expect(await tokenVesting.duration()).to.equal(duration);
     });
 
     it("Should set the right beneficiary", async function () {
-      const { thankTokenVesting, otherAccount } = await loadFixture(
+      const { tokenVesting, otherAccount } = await loadFixture(
         deployThankTokenVestingFixture
       );
 
-      expect(await thankTokenVesting.beneficiary()).to.equal(
-        otherAccount.address
-      );
+      expect(await tokenVesting.beneficiary()).to.equal(otherAccount.address);
     });
   });
 
   describe("Vest tokens", function () {
     it("Should vest minted tokens", async function () {
-      const { thank, thankTokenVesting, otherAccount } = await loadFixture(
+      const { thank, tokenVesting, otherAccount } = await loadFixture(
         deployThankTokenVestingFixture
       );
       await thank.mint(otherAccount.address);
 
       expect(await thank.balanceOf(otherAccount.address)).to.equal(
-        ethers.utils.parseEther("420000000")
+        ethers.utils.parseEther("126000000")
       );
 
       await thank
         .connect(otherAccount)
-        .transfer(
-          thankTokenVesting.address,
-          ethers.utils.parseEther("420000000")
-        );
+        .transfer(tokenVesting.address, ethers.utils.parseEther("126000000"));
 
-      expect(await thank.balanceOf(thankTokenVesting.address)).to.equal(
-        ethers.utils.parseEther("420000000")
+      expect(await thank.balanceOf(tokenVesting.address)).to.equal(
+        ethers.utils.parseEther("126000000")
       );
 
-      await thankTokenVesting["release(address)"](thank.address);
+      await tokenVesting["release(address)"](thank.address);
 
       expect(await thank.balanceOf(otherAccount.address)).to.equal(
-        ethers.utils.parseEther("420000000")
+        ethers.utils.parseEther("126000000")
+      );
+    });
+  });
+
+  describe("Cancel Vesting", function () {
+    it("Should return tokens to the vestingManager", async function () {
+      const { thank, tokenVesting, otherAccount, vestingManager } =
+        await loadFixture(deployThankTokenVestingFixture);
+      await thank.mint(otherAccount.address);
+
+      expect(await thank.balanceOf(otherAccount.address)).to.equal(
+        ethers.utils.parseEther("126000000")
+      );
+
+      await thank
+        .connect(otherAccount)
+        .transfer(tokenVesting.address, ethers.utils.parseEther("126000000"));
+
+      expect(await thank.balanceOf(tokenVesting.address)).to.equal(
+        ethers.utils.parseEther("126000000")
+      );
+
+      await tokenVesting.cancelVesting(thank.address);
+
+      expect(await thank.balanceOf(vestingManager.address)).to.equal(
+        ethers.utils.parseEther("126000000")
       );
     });
   });

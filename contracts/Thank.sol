@@ -3,10 +3,11 @@ pragma solidity ^0.8.9;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
+import "./interfaces/IThank.sol";
 
 import "./StakingRewards.sol";
 
-contract Thank is ERC20, AccessControl {
+contract Thank is ERC20, IThank, AccessControl {
     bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
 
     // Maximum Total Supply
@@ -22,6 +23,9 @@ contract Thank is ERC20, AccessControl {
 
         // 100 Billion tokens
         maxCap = 100000000000 ether;
+
+        // Premint 70%
+        _mint(msg.sender, (maxCap / 100) * 70);
     }
 
     function setStakingRewards(address _stakingRewards)
@@ -56,5 +60,9 @@ contract Thank is ERC20, AccessControl {
         _mint(to, amountToMint);
 
         emit Minted(to, amountToMint);
+    }
+
+    function getMaxCap() public view returns (uint256) {
+        return maxCap;
     }
 }
